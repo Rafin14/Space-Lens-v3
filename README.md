@@ -4,7 +4,6 @@ The main Space Lens application for Windows, built in Rust and Qt. Explore folde
 
 ## Preview
 
-The preview uses sample workspace data to showcase the main view, file filters, expanded-map zoom, folder breakdowns, light appearance, and interface scaling.
 
 ![Space Lens Rust feature showcase: overview, filters, map zoom, light appearance, and interface scale](docs/media/space-lens-demo.gif)
 
