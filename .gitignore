@@ -1,9 +1,0 @@
-.venv/
-__pycache__/
-*.py[cod]
-build/
-dist/
-deletion/
-.env
-.env.*
-
