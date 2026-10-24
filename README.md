@@ -1,6 +1,6 @@
-# Space Lens Rust
+# Space Lens
 
-The main Space Lens application for Windows, built in Rust and Qt. Explore folder sizes, find the largest items, and navigate an interactive space map with optimized scanning and rendering.
+Space Lens application for Windows, built in Rust and Qt. Explore folder sizes, find the largest items, and navigate an interactive space map with optimized scanning and rendering.
 
 ## Preview
 
