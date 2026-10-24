@@ -1,0 +1,14 @@
+
+QWidget#sheet QWidget#segmentedControl, QWidget#segmentedControl { background: #192129; border-color: #3b4755; }
+QWidget#segmentedControl QPushButton#segment:checked { background: #394957; border-color: #63798b; }
+QWidget#sidebar { background: #191f26; border: 1px solid #2b343f; border-radius: 12px; }
+QWidget#sheet { background: #222830; border: 1px solid #39434f; }
+QWidget#sheet QWidget#rankingPanel { background: #1b232b; }
+QWidget#breakdownPanel, QWidget#mapDetails { background: #272f39; border: 1px solid #3b4755; border-radius: 10px; }
+QWidget#breakdownPanel QLabel, QWidget#mapDetails QLabel { background: transparent; border: none; }
+QWidget#sheet QTableView, QWidget#sheet QTableView QWidget, QWidget#mapDetails QTableView, QWidget#mapDetails QTableView QWidget { background: #272f39; }
+QDialog#mapWorkspace { background: #1c222a; }
+QHeaderView::section { background: #272f39; color: #aebdcd; border-bottom: 1px solid #3b4755; }
+QTableView::item:hover, QTreeView::item:hover { background: #303d49; }
+QMenu, QWidget#sheet QMenu { background: #2b3440; border: 1px solid #536171; }
+QToolTip { background: #2c3743; color: #eef5fa; border: 1px solid #596c7e; border-radius: 6px; padding: 9px 12px; }

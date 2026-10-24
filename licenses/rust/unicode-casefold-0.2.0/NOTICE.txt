@@ -1,0 +1,5 @@
+unicode-casefold 0.2.0
+Author: Chris Wong
+Source: https://github.com/lfairy/unicode-casefold
+The crate declares MIT OR Apache-2.0 in its published Cargo.toml.
+This distribution uses the Apache-2.0 option; the license text is included.

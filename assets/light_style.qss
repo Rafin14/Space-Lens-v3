@@ -1,0 +1,13 @@
+
+QMainWindow, QWidget#chrome { background: #eef2f4; }
+QWidget#sidebar { background: #e5ecf0; border: 1px solid #cdd9e1; border-radius: 12px; }
+QWidget#sheet { background: #f7f9fb; border: 1px solid #d5dfe6; }
+QWidget#sheet QWidget { background: #f7f9fb; }
+QWidget#sheet QWidget#breakdownPanel, QWidget#mapDetails { background: #ffffff; border: 1px solid #d7e1e8; border-radius: 10px; }
+QWidget#breakdownPanel QLabel, QWidget#mapDetails QLabel, QWidget#sheet QLabel { background: transparent; }
+QWidget#sheet QTableView, QWidget#sheet QTableView QWidget, QWidget#mapDetails QTableView, QWidget#mapDetails QTableView QWidget { background: #ffffff; }
+QWidget#sheet QScrollArea#rankingArea, QWidget#sheet QScrollArea#rankingArea QWidget { background: transparent; }
+QDialog#mapWorkspace { background: #eef2f4; }
+QHeaderView::section { background: #f2f6f8; color: #536574; border-bottom: 1px solid #d7e1e8; }
+QWidget#sidebar QHeaderView::section { background: #e0e8ed; border-bottom: 1px solid #cdd9e1; }
+QTableView::item:hover, QTreeView::item:hover { background: #edf4f7; }
