@@ -27,6 +27,7 @@ pub struct Canvas {
     pub anchor: (f64, f64),
     pub scene: (f64, f64),
     press: Option<(f64, f64, f64, f64)>,
+    pending_click: bool,
     dragging: bool,
     angles: Vec<bool>,
     pub widget: W,
@@ -34,6 +35,10 @@ pub struct Canvas {
     incoming: Option<(Rect, Instant)>,
     last: Instant,
     phase: f64,
+    zoom_limit: f64,
+    item_focus: Option<Rect>,
+    wheel_focus: Option<(Rect, (f64, f64), Instant)>,
+    focus: Option<((f64, f64, f64), (f64, f64, f64), f64, f64)>,
 }
 impl Default for Canvas {
     fn default() -> Self {
@@ -53,6 +58,7 @@ impl Default for Canvas {
             anchor: (0., 0.),
             scene: (0., 0.),
             press: None,
+            pending_click: false,
             dragging: false,
             angles: vec![],
             widget: qt::NULL,
@@ -60,6 +66,10 @@ impl Default for Canvas {
             incoming: None,
             last: Instant::now(),
             phase: 0.,
+            zoom_limit: 12.,
+            item_focus: None,
+            wheel_focus: None,
+            focus: None,
         }
     }
 }
@@ -142,6 +152,10 @@ impl Canvas {
         self.x = 0.;
         self.y = 0.;
         self.press = None;
+        self.pending_click = false;
+        self.focus = None;
+        self.wheel_focus = None;
+        self.item_focus = None;
     }
     fn clamp(&mut self) {
         self.x = self.x.max(self.width * (1. - self.zoom)).min(0.);
@@ -151,13 +165,14 @@ impl Canvas {
         if self.entries.is_empty() {
             return;
         }
+        self.focus = None;
         let was_moving = self.moving();
         self.anchor = anchor;
         self.scene = (
             (anchor.0 - self.x) / self.zoom,
             (anchor.1 - self.y) / self.zoom,
         );
-        self.target = value.clamp(1., 12.);
+        self.target = value.clamp(1., self.zoom_limit);
         // Retargeting must preserve elapsed time as well as spring velocity.
         if !was_moving {
             self.last = Instant::now();
@@ -168,6 +183,57 @@ impl Canvas {
             self.x = anchor.0 - self.scene.0 * self.zoom;
             self.y = anchor.1 - self.scene.1 * self.zoom;
             self.clamp();
+        }
+    }
+    fn item_anchor(&self, r: Rect) -> (f64, f64) {
+        (
+            ((r.x + r.w / 2.) * self.zoom + self.x).clamp(0., self.width),
+            ((r.y + r.h / 2.) * self.zoom + self.y).clamp(0., self.height),
+        )
+    }
+    fn nearby(&self, point: (f64, f64)) -> Option<Rect> {
+        self.layout.nearby_tiny(
+            point,
+            self.zoom,
+            (self.x, self.y),
+            36. * SCALE.get(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                w: self.width,
+                h: self.height,
+            },
+        )
+    }
+    fn focus_at(&mut self, point: (f64, f64)) {
+        let Some(rect) = self.nearby(point).or_else(|| {
+            self.layout
+                .hit(
+                    (point.0 - self.x) / self.zoom,
+                    (point.1 - self.y) / self.zoom,
+                )
+                .map(|(_, r)| r)
+        }) else {
+            return;
+        };
+        let fit = (self.width / rect.w).min(self.height / rect.h) * 0.92;
+        let z = fit
+            .max(self.width.min(self.height) * 0.4 / rect.w.min(rect.h))
+            .clamp(1., self.zoom_limit);
+        let x = (self.width / 2. - (rect.x + rect.w / 2.) * z).clamp(self.width * (1. - z), 0.);
+        let y = (self.height / 2. - (rect.y + rect.h / 2.) * z).clamp(self.height * (1. - z), 0.);
+        self.wheel_focus = None;
+        self.item_focus = Some(rect);
+        self.velocity = 0.;
+        if REDUCED.get() {
+            self.zoom = z;
+            self.target = z;
+            self.x = x;
+            self.y = y;
+        } else {
+            self.focus = Some(((self.zoom, self.x, self.y), (z, x, y), 0., 0.));
+            self.last = Instant::now();
+            self.target = self.zoom;
         }
     }
     fn transform(&self) -> Transform {
@@ -197,8 +263,18 @@ pub fn zoom(id: usize, factor: f64, reset: bool) {
     MAPS.with(|maps| {
         let mut maps = maps.borrow_mut();
         let map = &mut maps[id];
-        let value = if reset { 1. } else { map.target * factor };
-        map.zoom_to(value, (map.width / 2., map.height / 2.), !reset);
+        let value = if reset {
+            map.item_focus = None;
+            map.wheel_focus = None;
+            1.
+        } else {
+            map.target * factor
+        };
+        let anchor = map
+            .item_focus
+            .map(|r| map.item_anchor(r))
+            .unwrap_or((map.width / 2., map.height / 2.));
+        map.zoom_to(value, anchor, !reset);
         unsafe {
             qt::sl_update(map.widget);
         }
@@ -213,6 +289,8 @@ pub fn pause(id: usize) {
         let map = &mut maps[id];
         map.target = map.zoom;
         map.velocity = 0.;
+        map.focus = None;
+        map.wheel_focus = None;
         map.incoming = None;
     });
 }
@@ -221,7 +299,7 @@ pub fn needs_animation() -> bool {
         maps.borrow()
             .iter()
             .take(2)
-            .any(|m| m.moving() || m.incoming.is_some())
+            .any(|m| m.moving() || m.focus.is_some() || m.incoming.is_some())
     })
 }
 pub fn loading_tick() {
@@ -243,13 +321,36 @@ pub fn animate() -> bool {
     let mut changed = false;
     MAPS.with(|maps| {
         for map in maps.borrow_mut().iter_mut().take(2) {
-            let moving = map.moving();
-            if moving {
+            let moving = map.moving() || map.focus.is_some();
+            if let Some((start, end, progress, velocity)) = map.focus {
+                let now = Instant::now();
+                let (t, v) = spring_step(
+                    progress,
+                    velocity,
+                    1.,
+                    now.duration_since(map.last).as_secs_f64().min(0.05),
+                );
+                map.last = now;
+                let t = if t > 0.9999 { 1. } else { t };
+                map.zoom = start.0 + (end.0 - start.0) * t;
+                map.target = map.zoom;
+                map.x = start.1 + (end.1 - start.1) * t;
+                map.y = start.2 + (end.2 - start.2) * t;
+                map.clamp();
+                map.focus = if t == 1. {
+                    None
+                } else {
+                    Some((start, end, t, v))
+                };
+                changed = true;
+            } else if moving {
                 let now = Instant::now();
                 let dt = now.duration_since(map.last).as_secs_f64().min(0.05);
                 map.last = now;
                 (map.zoom, map.velocity) = spring_step(map.zoom, map.velocity, map.target, dt);
-                if (map.zoom - map.target).abs() < 0.001 && map.velocity.abs() < 0.01 {
+                if (map.zoom - map.target).abs() < (map.target * 1e-9).max(0.001)
+                    && map.velocity.abs() < (map.target * 1e-8).max(0.01)
+                {
                     map.zoom = map.target;
                     map.velocity = 0.;
                 }
@@ -303,13 +404,17 @@ pub fn input(
         let mut repaint = false;
         match kind {
             0 if button == 1 => {
+                map.pending_click = false;
+                map.focus = None;
+                map.wheel_focus = None;
                 map.target = map.zoom;
                 map.velocity = 0.;
                 map.press = Some((x, y, map.x, map.y));
                 map.dragging = false;
             }
             1 if button == 1 => {
-                let click = map.press.take().is_some() && !map.dragging;
+                let click = map.pending_click || (map.press.take().is_some() && !map.dragging);
+                map.pending_click = false;
                 map.dragging = false;
                 unsafe {
                     qt::sl_cursor(map.widget, 0);
@@ -322,6 +427,7 @@ pub fn input(
                 if let Some((px, py, ox, oy)) = map.press {
                     if map.dragging || (x - px).abs() + (y - py).abs() > 6. {
                         map.dragging = true;
+                        map.item_focus = None;
                         map.x = ox + x - px;
                         map.y = oy + y - py;
                         map.clamp();
@@ -353,14 +459,46 @@ pub fn input(
                 }
             }
             3 => {
+                map.press = None;
+                map.pending_click = false;
                 unsafe {
                     qt::sl_tooltip(map.widget, x, y, qt::c("").as_ptr());
                 }
+                let point = (x, y);
+                let mut anchor = point;
+                if delta > 0. {
+                    let retained = map.wheel_focus.filter(|(_, p, time)| {
+                        time.elapsed().as_millis() < 350
+                            && (p.0 - x).hypot(p.1 - y) < 36. * SCALE.get()
+                    });
+                    let rect = retained.map(|(r, _, _)| r).or_else(|| map.nearby(point));
+                    if let Some(r) = rect {
+                        anchor = map.item_anchor(r);
+                        map.wheel_focus = Some((r, point, Instant::now()));
+                        map.item_focus = Some(r);
+                    }
+                } else {
+                    map.wheel_focus = None;
+                }
                 map.zoom_to(
                     map.target * 1.18f64.powf((delta / 120.).clamp(-8., 8.)),
-                    (x, y),
+                    anchor,
                     true,
                 );
+                repaint = true;
+            }
+            7 if button == 1 => {
+                map.press = None;
+                map.pending_click = false;
+                map.focus_at((x, y));
+                repaint = true;
+            }
+            8 if button == 1 => {
+                map.pending_click = map.press.take().is_some() && !map.dragging;
+                map.dragging = false;
+                unsafe {
+                    qt::sl_cursor(map.widget, 0);
+                }
             }
             4 => {
                 map.width = x;
@@ -375,7 +513,15 @@ pub fn input(
                 } else {
                     map.target * if button == 45 { 1. / 1.2 } else { 1.2 }
                 };
-                map.zoom_to(value, (map.width / 2., map.height / 2.), false);
+                if button == 48 {
+                    map.item_focus = None;
+                    map.wheel_focus = None;
+                }
+                let anchor = map
+                    .item_focus
+                    .map(|r| map.item_anchor(r))
+                    .unwrap_or((map.width / 2., map.height / 2.));
+                map.zoom_to(value, anchor, true);
                 repaint = true;
             }
             6 => unsafe {
@@ -564,13 +710,15 @@ pub extern "C" fn rust_paint(id: i32, painter: *mut c_void, width: i32, height: 
         if map.layout.is_empty() {
             map.layout.build(
                 map.entries.iter().map(|e| e.size.unwrap_or(0)),
+                // Borders belong to screen-space painting; scene-space padding grows with zoom.
                 Rect {
-                    x: 1.,
-                    y: 1.,
-                    w: canvas.w - 2.,
-                    h: canvas.h - 2.,
+                    x: 0.,
+                    y: 0.,
+                    w: canvas.w,
+                    h: canvas.h,
                 },
             );
+            map.zoom_limit = map.layout.zoom_limit(canvas.w, canvas.h);
         }
         if map.layout.is_empty() {
             qt::draw_text(
@@ -623,10 +771,10 @@ pub extern "C" fn rust_paint(id: i32, painter: *mut c_void, width: i32, height: 
             unsafe {
                 qt::sl_map_fill(
                     p,
-                    box_.x,
-                    box_.y,
-                    box_.w,
-                    box_.h,
+                    visible.x,
+                    visible.y,
+                    visible.w,
+                    visible.h,
                     if entry.path.as_os_str().is_empty() {
                         4
                     } else {
@@ -691,3 +839,61 @@ pub extern "C" fn rust_paint(id: i32, painter: *mut c_void, width: i32, height: 
     });
 }
 use std::ops::Add;
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn zoom_and_pan_keep_map_bounds_covering_viewport() {
+        let mut map = Canvas::default();
+        map.width = 340.;
+        map.height = 240.;
+        // This is the same full-viewport scene rectangle used by the painter.
+        map.layout.build(
+            [90_u64, 5, 5].into_iter(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                w: map.width,
+                h: map.height,
+            },
+        );
+        for zoom in [1., 19.56, 195.56, 1e6] {
+            map.zoom = zoom;
+            for (x, y) in [(0., 0.), (-1e15, -1e15), (1e15, 1e15)] {
+                map.x = x;
+                map.y = y;
+                map.clamp();
+                let root = map.transform().rect(map.layout.nodes[0].rect);
+                assert!(root.x <= 0. && root.y <= 0.);
+                assert!(root.x + root.w >= map.width - 1e-6);
+                assert!(root.y + root.h >= map.height - 1e-6);
+                let mut visible = Vec::new();
+                map.layout.visible(
+                    map.transform().scene(Rect {
+                        x: 0.,
+                        y: 0.,
+                        w: map.width,
+                        h: map.height,
+                    }),
+                    &mut visible,
+                );
+                let covered: f64 = visible
+                    .iter()
+                    .map(|i| {
+                        map.transform()
+                            .rect(map.layout.nodes[*i].rect)
+                            .intersect(Rect {
+                                x: 0.,
+                                y: 0.,
+                                w: map.width,
+                                h: map.height,
+                            })
+                    })
+                    .map(|r| r.w * r.h)
+                    .sum();
+                assert!((covered - map.width * map.height).abs() < 0.1);
+            }
+        }
+    }
+}

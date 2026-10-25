@@ -12,7 +12,7 @@ The main Space Lens application for Windows, built in Rust and Qt. Explore folde
 - A complete folder hierarchy and size breakdown, sorted largest first.
 - Back, Forward, Up, and Collapse all, with matching full-path headings that wrap to fit both views.
 - All items, folder, and file filters, light and dark themes, and interface scaling from 85% to 150%.
-- A space map with pointer-centered scroll zoom, drag to pan, vertical labels for narrow tiles, and a full-screen view.
+- A space map with area-aware scroll zoom, double-click to focus an item, drag to pan, vertical labels for narrow tiles, and a full-screen view.
 - A largest-items ranking, cancellable scans, refresh, and details for unreadable locations.
 - Windows-native deletion dialogs, Recycle Bin behavior, progress, and cancellation.
 - Keyboard navigation, copy-path actions, and a reduced-motion setting.

@@ -99,7 +99,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "spacelens-rust"
-version = "3.6.1"
+version = "3.7.0"
 dependencies = [
  "cc",
  "serde",

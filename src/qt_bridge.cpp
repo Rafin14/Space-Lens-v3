@@ -120,20 +120,25 @@ public:
 class Canvas final:public QWidget {
 
     int id;
+    QTimer clickTimer;
+    QPointF clickPoint;
+    bool skipRelease=false;
 
 public:
 
-    Canvas(QWidget* parent,int canvas):QWidget(parent),id(canvas){setAttribute(Qt::WA_OpaquePaintEvent);setFocusPolicy(canvas<2?Qt::StrongFocus:Qt::NoFocus);setMouseTracking(true);}
+    Canvas(QWidget* parent,int canvas):QWidget(parent),id(canvas){setAttribute(Qt::WA_OpaquePaintEvent);setFocusPolicy(canvas<2?Qt::StrongFocus:Qt::NoFocus);setMouseTracking(true);clickTimer.setSingleShot(true);connect(&clickTimer,&QTimer::timeout,this,[this]{send_input(100+id,1,Qt::LeftButton,clickPoint.x(),clickPoint.y());});}
 
     void paintEvent(QPaintEvent*)override{QPainter painter(this);if(id==2){auto font=painter.font();font.setFeature(QFont::Tag("tnum"),1);painter.setFont(font);}rust_paint(id,&painter,width(),height(),devicePixelRatioF());}
 
     void mousePressEvent(QMouseEvent* e)override{setFocus(Qt::MouseFocusReason);send_input(100+id,0,e->button(),e->position().x(),e->position().y());}
 
-    void mouseReleaseEvent(QMouseEvent* e)override{send_input(100+id,1,e->button(),e->position().x(),e->position().y());}
+    void mouseReleaseEvent(QMouseEvent* e)override{if(skipRelease){skipRelease=false;return;}if(id<2&&e->button()==Qt::LeftButton){send_input(100+id,8,e->button(),e->position().x(),e->position().y());clickPoint=e->position();clickTimer.start(QApplication::doubleClickInterval());}else send_input(100+id,1,e->button(),e->position().x(),e->position().y());}
+
+    void mouseDoubleClickEvent(QMouseEvent* e)override{if(id<2&&e->button()==Qt::LeftButton){clickTimer.stop();skipRelease=true;send_input(100+id,7,e->button(),e->position().x(),e->position().y());}else QWidget::mouseDoubleClickEvent(e);}
 
     void mouseMoveEvent(QMouseEvent* e)override{send_input(100+id,2,e->buttons().toInt(),e->position().x(),e->position().y());}
 
-    void wheelEvent(QWheelEvent* e)override{if(id>=2){QWidget::wheelEvent(e);return;}double delta=e->angleDelta().y()?e->angleDelta().y():e->pixelDelta().y()*3;send_input(100+id,3,0,e->position().x(),e->position().y(),delta);e->accept();}
+    void wheelEvent(QWheelEvent* e)override{if(id>=2){QWidget::wheelEvent(e);return;}clickTimer.stop();double delta=e->angleDelta().y()?e->angleDelta().y():e->pixelDelta().y()*3;send_input(100+id,3,0,e->position().x(),e->position().y(),delta);e->accept();}
 
     void resizeEvent(QResizeEvent* e)override{send_event(100+id,4,0,e->size().width(),e->size().height());}
 
@@ -239,7 +244,7 @@ void sl_init(){
 
     static int argc=1;static char name[]="SpaceLens_Rust";static char* argv[]={name,nullptr};
 
-    application=new QApplication(argc,argv);application->setApplicationName("Space Lens");application->setApplicationVersion("3.6.1");application->setOrganizationName("Space Lens Rust");application->setStyle("Fusion");
+    application=new QApplication(argc,argv);application->setApplicationName("Space Lens");application->setApplicationVersion("3.7.0");application->setOrganizationName("Space Lens Rust");application->setStyle("Fusion");
 
 }
 

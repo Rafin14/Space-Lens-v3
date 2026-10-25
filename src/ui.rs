@@ -1730,10 +1730,10 @@ impl App {
     fn zoom_labels(&self) {
         qt::text(
             self.ui.map_zoom,
-            &format!("{:0.0}%", canvas::zoom_value(0) * 100.),
+            &crate::geometry::zoom_text(canvas::zoom_value(0)),
         );
         if let Some(map) = &self.map_ui {
-            qt::text(map.zoom, &format!("{:0.0}%", canvas::zoom_value(1) * 100.));
+            qt::text(map.zoom, &crate::geometry::zoom_text(canvas::zoom_value(1)));
         }
     }
     fn open_map(&mut self) {

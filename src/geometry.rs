@@ -153,7 +153,7 @@ impl Layout {
                     },
                     Rect {
                         x: r.x + r.w * fraction,
-                        w: r.w * (1. - fraction),
+                        w: r.w * ((sums[end] - sums[cut]) as f64 / total as f64),
                         ..r
                     },
                 )
@@ -165,7 +165,7 @@ impl Layout {
                     },
                     Rect {
                         y: r.y + r.h * fraction,
-                        h: r.h * (1. - fraction),
+                        h: r.h * ((sums[end] - sums[cut]) as f64 / total as f64),
                         ..r
                     },
                 )
@@ -223,5 +223,130 @@ impl Layout {
             work.push(node.children);
         }
         None
+    }
+
+    pub fn zoom_limit(&self, width: f64, height: f64) -> f64 {
+        self.nodes
+            .iter()
+            .filter(|n| n.children == usize::MAX)
+            .fold(12_f64, |limit, n| {
+                limit.max(4. * width / n.rect.w).max(4. * height / n.rect.h)
+            })
+            .min(1e12)
+    }
+
+    // Search only the neighborhood through the existing spatial tree, including narrow strips.
+    pub fn nearby_tiny(
+        &self,
+        point: (f64, f64),
+        zoom: f64,
+        offset: (f64, f64),
+        radius: f64,
+        viewport: Rect,
+    ) -> Option<Rect> {
+        let mut candidates = Vec::new();
+        self.visible(
+            Rect {
+                x: (point.0 - radius - offset.0) / zoom,
+                y: (point.1 - radius - offset.1) / zoom,
+                w: 2. * radius / zoom,
+                h: 2. * radius / zoom,
+            },
+            &mut candidates,
+        );
+        let mut best = None;
+        let mut score = (f64::INFINITY, f64::INFINITY);
+        for index in candidates {
+            let r = self.nodes[index].rect;
+            if r.w.min(r.h) * zoom > radius {
+                continue;
+            }
+            let screen = Rect {
+                x: r.x * zoom + offset.0,
+                y: r.y * zoom + offset.1,
+                w: r.w * zoom,
+                h: r.h * zoom,
+            };
+            let clip = screen.intersect(viewport);
+            if clip.w <= 0. || clip.h <= 0. {
+                continue;
+            }
+            let dx = (screen.x - point.0)
+                .max(0.)
+                .max(point.0 - screen.x - screen.w);
+            let dy = (screen.y - point.1)
+                .max(0.)
+                .max(point.1 - screen.y - screen.h);
+            let next = (dx * dx + dy * dy, r.w * r.h);
+            if next.0 <= radius * radius && next < score {
+                score = next;
+                best = Some(r);
+            }
+        }
+        best
+    }
+}
+
+pub fn zoom_text(zoom: f64) -> String {
+    if zoom >= 1e9 {
+        format!("{:.1}B×", zoom / 1e9)
+    } else if zoom >= 1e6 {
+        format!("{:.1}M×", zoom / 1e6)
+    } else if zoom >= 1e3 {
+        format!("{:.1}K×", zoom / 1e3)
+    } else {
+        format!("{:.0}%", zoom * 100.)
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+    #[test]
+    fn nearby_miss_finds_tiny_and_does_not_hijack_distant_zoom() {
+        let mut layout = Layout::default();
+        layout.build(
+            [999_999_u64, 1].into_iter(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                w: 400.,
+                h: 800.,
+            },
+        );
+        let viewport = Rect {
+            x: 0.,
+            y: 0.,
+            w: 400.,
+            h: 800.,
+        };
+        let tiny = layout
+            .nearby_tiny((390., 785.), 1., (0., 0.), 36., viewport)
+            .unwrap();
+        assert!(tiny.w.min(tiny.h) < 1.);
+        assert!(
+            layout
+                .nearby_tiny((200., 400.), 1., (0., 0.), 36., viewport)
+                .is_none()
+        );
+        assert!(layout.zoom_limit(400., 800.) > 1e6);
+    }
+    #[test]
+    fn extreme_positive_weights_keep_real_area_and_finite_limit() {
+        let mut layout = Layout::default();
+        layout.build(
+            [u64::MAX - 1, 1].into_iter(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                w: 400.,
+                h: 800.,
+            },
+        );
+        for n in &layout.nodes {
+            assert!(n.rect.w > 0. && n.rect.h > 0.);
+        }
+        assert_eq!(layout.zoom_limit(400., 800.), 1e12);
+        assert!(zoom_text(1e12).len() < 12);
     }
 }
